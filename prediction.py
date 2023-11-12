@@ -13,17 +13,22 @@ def get_combined_value(pixel):
     else:
         raise ValueError(f"Unsupported image mode ({len(pixel)} channels). Only RGB, RGBA, and grayscale images are supported.")
 
-def predict_combined_value(image_path, learned_folder):
-    img = Image.open(image_path)
-    width, height = img.size
-
+def predict_combined_value(model_folder):
     combined_values = []
 
-    for y in range(height):
-        for x in range(width):
-            pixel = img.getpixel((x, y))
-            combined_value = get_combined_value(pixel)
-            combined_values.append(combined_value)
+    for trained_folder_name in os.listdir(model_folder):
+        trained_folder_path = os.path.join(model_folder, trained_folder_name)
+
+        if os.path.isdir(trained_folder_path):
+            for filename in os.listdir(trained_folder_path):
+                if filename.endswith('_results.txt'):
+                    result_path = os.path.join(trained_folder_path, filename)
+
+                    with open(result_path, "r") as result_file:
+                        for line in result_file:
+                            # Extract combined value from the line using regular expressions
+                            value = float(re.findall(r'[-+]?\d*\.\d+|\d+', line)[-1])
+                            combined_values.append(value)
 
     return combined_values
 
@@ -77,25 +82,20 @@ def compare_results(predicted_combined_values, model_folder):
 def update_feedback(model_folder, best_trained_folder, predicted_combined_values):
     feedback = input("\nIs the recognized object correct? (Y/N): ").lower()
 
-    if feedback == 'y' or feedback == 'n':
-        if feedback == 'n':
-            best_trained_folder = input("Enter a new base name for the recognized object: ")
+    if feedback == 'y':
+        print(f"Object {best_trained_folder} recognized with the highest confidence.")
+        result_path = os.path.join(model_folder, f"{best_trained_folder}_results.txt")
+        with open(result_path, "w") as result_file:
+            for i, combined_value in enumerate(predicted_combined_values):
+                result_file.write(f"Pixel {i + 1}: Combined Value = {combined_value:.2f}\n")
+    elif feedback == 'n':
+        new_folder_name = input("Enter a new name for the recognized object: ")
+        new_folder_path = os.path.join(model_folder, new_folder_name)
 
-        # Generate a unique filename
-        new_folder_path = os.path.join(model_folder, best_trained_folder)
         os.makedirs(new_folder_path, exist_ok=True)
 
-        base_filename = f"{best_trained_folder}_results"
-        unique_filename = base_filename
-        counter = 1
-
-        while os.path.exists(os.path.join(new_folder_path, f"{unique_filename}.txt")):
-            unique_filename = f"{base_filename}_{counter}"
-            counter += 1
-
-        result_path = os.path.join(new_folder_path, f"{unique_filename}.txt")
-
-        # Save the new results with the generated name
+        # Save the new results with the updated name
+        result_path = os.path.join(new_folder_path, f"{new_folder_name}_results.txt")
         with open(result_path, "w") as result_file:
             for i, combined_value in enumerate(predicted_combined_values):
                 result_file.write(f"Pixel {i + 1}: Combined Value = {combined_value:.2f}\n")
@@ -103,10 +103,9 @@ def update_feedback(model_folder, best_trained_folder, predicted_combined_values
         print("Invalid feedback. Please enter 'Y' or 'N'.")
 
 if __name__ == "__main__":
-    image_path = input("Enter the image to predict: ")
     model_folder = input("Enter the model folder: ")
 
-    predicted_combined_values = predict_combined_value(image_path, model_folder)
+    predicted_combined_values = predict_combined_value(model_folder)
     highest_percentage, best_trained_folder = compare_results(predicted_combined_values, model_folder)
 
     print(f"\nHighest Percentage: {highest_percentage:.2f}%")
