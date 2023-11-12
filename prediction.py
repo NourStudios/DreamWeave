@@ -104,6 +104,7 @@ def update_feedback(model_folder, best_trained_folder, predicted_combined_values
 
 if __name__ == "__main__":
     model_folder = input("Enter the model folder: ")
+    image_path = input("Enter the image path: ") 
 
     predicted_combined_values = predict_combined_value(model_folder)
     highest_percentage, best_trained_folder = compare_results(predicted_combined_values, model_folder)
