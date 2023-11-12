@@ -29,7 +29,7 @@ def train_model(image_folder, model_folder, learned_name):
                     for x in range(width):
                         pixel = img.getpixel((x, y))
                         combined_value = get_combined_value(pixel)
-                        result_file.write(f"Pixel {x + 1}-{y + 1}: Combined Value = {combined_value}\n")
+                        result_file.write(f"Pixel {i + 1}: Combined Value = {combined_value}\n")
 
 if __name__ == "__main__":
     image_folder = input("Enter the folder containing the training images: ")
