@@ -32,7 +32,7 @@ def train_model(image_folder, model_folder, learned_name):
                 for i, combined_value in enumerate(combined_values):
                     result_file.write(f"Pixel {i + 1}: Combined Value = {combined_value:.2f}\n")
 
-if __name__ == "__main__":?
+if __name__ == "__main__":
     image_folder = input("Enter the folder containing the training images: ")
     model_folder = input("Enter the model folder: ")
     learned_name = input("Enter the name of what it has learned: ")
