@@ -1,40 +1,53 @@
 import os
+import json
+import uuid
 from PIL import Image
 
-def get_combined_value(pixel):
-    if len(pixel) == 3 or len(pixel) == 4:  # RGB or RGBA image
-        brightness = 0.299 * pixel[0] + 0.587 * pixel[1] + 0.114 * pixel[2]
-        return brightness + sum(pixel[:3])  # Consider only the RGB channels
-    elif len(pixel) == 1:  # Grayscale image
-        return pixel[0]
-    elif len(pixel) == 2:  # Grayscale image with alpha channel
-        return pixel[0]
-    else:
-        raise ValueError(f"Unsupported image mode ({len(pixel)} channels). Only RGB, RGBA, and grayscale images are supported.")
+def get_pixel_values(image_path):
+    image = Image.open(image_path)
+    return [int(pixel) for pixel in image.convert('1').tobytes()]
 
-def train_model(image_folder, model_folder, learned_name):
+def calculate_values(previous_values):
+    max_value = max(previous_values)
+    normalized_values = [value / max_value for value in previous_values]
+    combined_values = [normalized_values[i] + normalized_values[i + 1] for i in range(len(normalized_values) - 1)]
+    return combined_values
+
+def save_values(values, output_folder, object_name):
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    object_folder = os.path.join(output_folder, object_name)
+
+    if not os.path.exists(object_folder):
+        os.makedirs(object_folder)
+
+    random_filename = f"{uuid.uuid4().hex}_result.json"
+    output_file_path = os.path.join(object_folder, random_filename)
+
+    with open(output_file_path, 'w') as output_file:
+        json.dump(values, output_file)
+
+def train_model(image_folder, output_folder):
+    print(f"Training model for {image_folder}...")
+
+    combined_values_list = []
+
     for filename in os.listdir(image_folder):
         if filename.endswith('.png'):
             image_path = os.path.join(image_folder, filename)
-            img = Image.open(image_path)
-            width, height = img.size
+            pixel_values = get_pixel_values(image_path)
+            combined_values = calculate_values(pixel_values)
+            combined_values_list.append(combined_values)
 
-            combined_values = []
-
-            for y in range(height):
-                for x in range(width):
-                    pixel = img.getpixel((x, y))
-                    combined_value = get_combined_value(pixel)
-                    combined_values.append(combined_value)
-
-            result_path = os.path.join(model_folder, f"{filename}_{learned_name}_results.txt")
-            with open(result_path, "w") as result_file:
-                for i, combined_value in enumerate(combined_values):
-                    result_file.write(f"Pixel {i + 1}: Combined Value = {combined_value:.2f}\n")
+    if combined_values_list:
+        # Calculate average values
+        averaged_values = [sum(x) / len(x) for x in zip(*combined_values_list)]
+        save_values(averaged_values, output_folder, os.path.basename(image_folder))
+        print(f"Model trained and saved for {image_folder}")
 
 if __name__ == "__main__":
-    image_folder = input("Enter the folder containing the training images: ")
-    model_folder = input("Enter the model folder: ")
-    learned_name = input("Enter the name of what it has learned: ")
+    image_folder = input("Enter the folder containing training images: ")
+    model_folder = input("Enter the model folder to save trained values: ")
 
-    train_model(image_folder, model_folder, learned_name)
+    train_model(image_folder, model_folder)
