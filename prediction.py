@@ -1,98 +1,91 @@
 import os
 import json
-import random
-import string
-from PIL import Image
+import cv2
+import numpy as np
+
+LEARNING_RATE = 0.01
 
 def get_pixel_values(image_path):
-    image = Image.open(image_path)
-    return [int(pixel) for pixel in image.convert('1').tobytes()]
-
-def calculate_values(previous_values):
-    max_value = max(previous_values)
-    normalized_values = [value / max_value for value in previous_values]
-    combined_values = [normalized_values[i] + normalized_values[i + 1] for i in range(len(normalized_values) - 1)]
-    return combined_values
-
-def read_values(file_path):
-    with open(file_path, 'r') as file:
-        return json.load(file)
-
-def calculate_similarity(predicted_values, trained_values):
-    differences = [abs(p - t) for p, t in zip(predicted_values, trained_values)]
-    similarity_score = 1 - (sum(differences) / len(differences))
-    return similarity_score * 100
-
-def generate_random_filename():
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-
-def save_results(results, learned_folder, object_name):
-    object_folder = os.path.join(learned_folder, object_name)
-
-    if not os.path.exists(object_folder):
-        os.makedirs(object_folder)
-
-    random_filename = generate_random_filename()
-    output_file_path = os.path.join(object_folder, f"{random_filename}_result.json")
-
-    with open(output_file_path, 'w') as output_file:
-        json.dump(results, output_file)
-
-def predict_combined_value(image_path, learned_folder):
-    print(f"Processing image: {image_path}")
-
+    """Converts an image to grayscale and returns normalized pixel values."""
     try:
-        image = Image.open(image_path)
-        predicted_values = get_pixel_values(image_path)
-        predicted_combined_values = calculate_values(predicted_values)
+        # Read the image using OpenCV
+        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
+        # Check if the image was successfully loaded
+        if image is None:
+            raise ValueError(f"Unable to read image {image_path}")
+
+        # Convert pixel values to floating point and normalize
+        pixel_values = image.flatten().astype(float) / 255.0
+
+        return pixel_values
     except Exception as e:
-        print(f"Error processing image: {e}")
-        return
+        print(f"Error processing image {image_path}: {e}")
+        return []
 
-    highest_similarity = 0
-    best_trained_folder = ""
+def sigmoid(x):
+    """Sigmoid activation function."""
+    return 1 / (1 + np.exp(-x))
 
-    for folder_name in os.listdir(learned_folder):
-        folder_path = os.path.join(learned_folder, folder_name)
+def calculate_output(input_values, weights):
+    """Calculates the output of the neural network."""
+    output = np.dot(input_values, weights)
+    return sigmoid(output)
 
-        if os.path.isdir(folder_path):
-            for filename in os.listdir(folder_path):
-                if filename.endswith('_result.json'):
-                    trained_file_path = os.path.join(folder_path, filename)
+def load_weights(model_folder, input_values):
+    """Loads weights from model_folder and returns the folder with highest prediction."""
+    try:
+        object_folders = [f.path for f in os.scandir(model_folder) if f.is_dir()]
+        max_prediction = float('-inf')
+        best_folder = None
 
-                    try:
-                        trained_values = read_values(trained_file_path)
-                    except Exception as e:
-                        print(f"Error reading values from {trained_file_path}: {e}")
-                        continue
+        for object_folder in object_folders:
+            weights_file_path = os.path.join(object_folder, "weights.json")
+            with open(weights_file_path, 'r') as file:
+                weights = json.load(file)
 
-                    similarity = calculate_similarity(predicted_combined_values, trained_values)
+            prediction = calculate_output(input_values, weights)
+            if prediction > max_prediction:
+                max_prediction = prediction
+                best_folder = object_folder
 
-                    print(f"{filename}: {similarity:.2f}%")
+        return best_folder, max_prediction
+    except Exception as e:
+        print(f"Error loading weights: {e}")
+        return None, 0.0
 
-                    if similarity > highest_similarity:
-                        highest_similarity = similarity
-                        best_trained_folder = folder_name
+def update_weights(input_values, weights, target_output):
+    """Updates weights based on the error between predicted and target output."""
+    predicted_output = calculate_output(input_values, weights)
+    error = target_output - predicted_output
+    for i in range(len(weights)):
+        weights[i] += LEARNING_RATE * error * input_values[i]
+    return weights
 
-    print(f"\nHighest Similarity: {highest_similarity:.2f}%")
-
-    if best_trained_folder:
-        print(f"Recognized object: {best_trained_folder}")
-        user_feedback = input("Is this correct? (y/n): ")
-
-        if user_feedback.lower() == 'y':
-            save_results(predicted_combined_values, learned_folder, best_trained_folder)
-            print("Results saved.")
-        else:
-            object_name = input("Enter the correct object name: ")
-            save_results(predicted_combined_values, learned_folder, object_name)
-            print("Results saved.")
-    else:
-        print("No recognized object.")
+def predict_object(image_path, model_folder):
+    """Predicts the object in the image and updates weights based on user feedback."""
+    print(f"Predicting object for image: {image_path}")
+    try:
+        pixel_values = get_pixel_values(image_path)
+        best_folder, max_prediction = load_weights(model_folder, pixel_values)
+        print(f"Highest predicted output: {max_prediction}")
+        if best_folder:
+            print(f"Folder with highest prediction: {os.path.basename(best_folder)}")
+            user_feedback = input("Is this prediction correct? (y/n): ")
+            if user_feedback.lower() == 'n':
+                correct_object = input("Enter the correct object name: ")
+                weights_file_path = os.path.join(best_folder, "weights.json")
+                with open(weights_file_path, 'r') as file:
+                    weights = json.load(file)
+                updated_weights = update_weights(pixel_values, weights, correct_object)
+                with open(weights_file_path, 'w') as file:
+                    json.dump(updated_weights, file)
+                print("Weights updated based on user feedback.")
+    except Exception as e:
+        print(f"Error processing image {image_path}: {e}")
 
 if __name__ == "__main__":
     image_path = input("Enter the image to predict: ")
-    learned_folder = input("Enter the model folder: ")
+    model_folder = input("Enter the model folder containing trained values: ")
 
-    predict_combined_value(image_path, learned_folder)
+    predict_object(image_path, model_folder)
