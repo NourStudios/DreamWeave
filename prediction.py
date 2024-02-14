@@ -1,39 +1,25 @@
 import os
 import json
-import cv2
+import imageio.v2 as imageio
 import numpy as np
 
-LEARNING_RATE = 0.01
-
 def get_pixel_values(image_path):
-    """Converts an image to grayscale and returns normalized pixel values."""
     try:
-        # Read the image using OpenCV
-        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-
-        # Check if the image was successfully loaded
-        if image is None:
-            raise ValueError(f"Unable to read image {image_path}")
-
-        # Convert pixel values to floating point and normalize
-        pixel_values = image.flatten().astype(float) / 255.0
-
-        return pixel_values
+        image = imageio.imread(image_path, mode='L')  # Read image in grayscale mode
+        pixel_values = np.array(image, dtype=float) / 255.0
+        rounded_values = np.round(pixel_values, decimals=2)  # Round to two decimal places
+        return rounded_values.flatten()
     except Exception as e:
         print(f"Error processing image {image_path}: {e}")
         return []
 
 def sigmoid(x):
-    """Sigmoid activation function."""
     return 1 / (1 + np.exp(-x))
 
 def calculate_output(input_values, weights):
-    """Calculates the output of the neural network."""
-    output = np.dot(input_values, weights)
-    return sigmoid(output)
+    return sigmoid(np.dot(input_values, weights))  # Use dot product for element-wise multiplication and summation
 
 def load_weights(model_folder, input_values):
-    """Loads weights from model_folder and returns the folder with highest prediction."""
     try:
         object_folders = [f.path for f in os.scandir(model_folder) if f.is_dir()]
         max_prediction = float('-inf')
@@ -54,16 +40,30 @@ def load_weights(model_folder, input_values):
         print(f"Error loading weights: {e}")
         return None, 0.0
 
-def update_weights(input_values, weights, target_output):
-    """Updates weights based on the error between predicted and target output."""
+def update_weights(input_values, weights, target_output, object_folder):
     predicted_output = calculate_output(input_values, weights)
     error = target_output - predicted_output
     for i in range(len(weights)):
-        weights[i] += LEARNING_RATE * error * input_values[i]
+        weights[i] += error * input_values[i]
+        weights[i] = round(weights[i], 2)  # Round to two decimal places
+    save_weights(weights, object_folder, "")  # Save updated weights
     return weights
 
+def save_weights(weights, output_folder, object_name):
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    object_folder = os.path.join(output_folder, object_name)
+
+    if not os.path.exists(object_folder):
+        os.makedirs(object_folder)
+
+    output_file_path = os.path.join(object_folder, "weights.json")
+
+    with open(output_file_path, 'w') as output_file:
+        json.dump(weights, output_file, indent=2)  # Save weights with indentation for better readability
+
 def predict_object(image_path, model_folder):
-    """Predicts the object in the image and updates weights based on user feedback."""
     print(f"Predicting object for image: {image_path}")
     try:
         pixel_values = get_pixel_values(image_path)
@@ -77,9 +77,9 @@ def predict_object(image_path, model_folder):
                 weights_file_path = os.path.join(best_folder, "weights.json")
                 with open(weights_file_path, 'r') as file:
                     weights = json.load(file)
-                updated_weights = update_weights(pixel_values, weights, correct_object)
-                with open(weights_file_path, 'w') as file:
-                    json.dump(updated_weights, file)
+                # Pass object_folder to update_weights function
+                object_folder = os.path.join(model_folder, correct_object)
+                update_weights(pixel_values, weights, 1.0 if correct_object == os.path.basename(best_folder) else 0.0, object_folder)
                 print("Weights updated based on user feedback.")
     except Exception as e:
         print(f"Error processing image {image_path}: {e}")
