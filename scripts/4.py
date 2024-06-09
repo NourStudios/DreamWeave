@@ -27,36 +27,38 @@ def load_weights(output_folder, layer_name):
         data = json.load(input_file)
         weights = np.array(data['weights'])
         bias = np.array(data['bias'])
-    return weights, bias
-
-def calculate_output(input_values, weights, bias):
-    return softmax(np.dot(input_values, weights) + bias)
+        object_names = data['object_names']
+    return weights, bias, object_names
 
 def predict(image_path, model_folder):
     input_values = get_brightness_values(image_path)
     if input_values is None:
-        return None, None
+        return "Prediction failed due to image processing error."
 
     layer = 1
     while True:
-        layer_name = f"layer{layer}"
-        layer_folder = os.path.join(model_folder, layer_name)
-        if not os.path.exists(layer_folder) or not os.path.isfile(os.path.join(layer_folder, "weights.json")):
-            break
-        weights, bias = load_weights(model_folder, layer_name)
-        input_values = calculate_output(input_values, weights, bias)
-        layer += 1
+        try:
+            weights, bias, object_names = load_weights(model_folder, f"layer{layer}")
+            predicted_output = softmax(np.dot(input_values, weights) + bias)
+            predicted_class_index = np.argmax(predicted_output)
+            predicted_class = object_names[predicted_class_index]
+            print(f"Layer {layer}: Predicted class - {predicted_class}")
 
-    return np.argmax(input_values), input_values
+            # Check if there is a next layer
+            if not os.path.exists(os.path.join(model_folder, f"layer{layer+1}")):
+                break
+
+            input_values = np.zeros(len(object_names))
+            input_values[predicted_class_index] = 1
+            layer += 1
+        except FileNotFoundError:
+            break
+
+    return predicted_class
 
 if __name__ == "__main__":
-    image_path = input("Enter the path to the image file: ")
-    model_folder = input("Enter the model folder containing the trained values: ")
+    model_folder = input("Enter the model folder: ")
+    image_path = input("Enter the path to the image: ")
 
-    predicted_class, output_probabilities = predict(image_path, model_folder)
-    if predicted_class is not None:
-        print(f"Predicted Class: {predicted_class}")
-        print(f"Output Probabilities: {output_probabilities}")
-    else:
-        print("Prediction failed.")
-        
+    predicted_class = predict(image_path, model_folder)
+    print(f"Final Prediction: {predicted_class}")

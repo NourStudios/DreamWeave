@@ -4,9 +4,9 @@ def main():
     choice = input("Text-Based Model(1) or Image-Based Model(2): ")
 
     if choice == '1':
-        subprocess.run(["python", "3.py"])
+        subprocess.run(["python", "scripts/3.py"])
     elif choice == '2':
-        subprocess.run(["python", "4.py"])
+        subprocess.run(["python", "scripts/4.py"])
     else:
         print("Invalid choice. Please enter 1 or 2.")
 
