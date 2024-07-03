@@ -2,17 +2,24 @@ import os
 import json
 import numpy as np
 import random
+from PIL import Image
 
-def get_features_from_txt(file_path):
+def text_to_values(text_path, max_length=500):
     try:
-        with open(file_path, 'r') as file:
-            data = file.read().strip().split()
-            features = np.array(data[:-1], dtype=float)
-            target_index = int(data[-1])
-            return features, target_index
+        with open(text_path, 'r') as file:
+            text = file.read()
     except Exception as e:
-        print(f"Error processing file {file_path}: {e}")
-        return None, None
+        print(f"Error reading file {text_path}: {e}")
+        return None
+    
+    char_values = [ord(char) for char in text[:max_length]]
+    char_values.extend([0] * (max_length - len(char_values)))
+
+    # Normalize and scale values to range [0.001, 1]
+    normalized_values = [value / 127 for value in char_values]
+    scaled_values = [0.001 + (value * (1 - 0.001)) for value in normalized_values]
+    
+    return np.array(scaled_values)
 
 def softmax(x):
     exp_x = np.exp(x - np.max(x))
@@ -27,44 +34,36 @@ def initialize_weights(num_features, num_classes):
 def calculate_output(input_values, weights, bias):
     return softmax(np.dot(input_values, weights) + bias)
 
-def cross_entropy_loss(predicted_output, target_output):
-    return -np.sum(target_output * np.log(predicted_output + 1e-15))
+def mean_squared_error(predicted_output, target_output):
+    return 0.5 * np.sum((predicted_output - target_output) ** 2)
 
 def update_weights(input_values, weights, bias, target_output, predicted_output, learning_rate):
-    error = target_output - predicted_output
-    dL_dw = -2 * np.outer(input_values, error)
-    dL_db = -2 * error
+    error = predicted_output - target_output
+    dL_dw = np.outer(input_values, error)
+    dL_db = error
     weights -= learning_rate * dL_dw
     bias -= learning_rate * dL_db
     return weights, bias
 
-def save_weights(weights, bias, output_folder, layer_name):
+def save_weights(weights, bias, output_folder, layer_name, object_names):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
     layer_folder = os.path.join(output_folder, layer_name)
     if not os.path.exists(layer_folder):
         os.makedirs(layer_folder)
     output_file_path = os.path.join(layer_folder, "weights.json")
-    data = {'weights': weights.tolist(), 'bias': bias.tolist()}
+    data = {'weights': weights.tolist(), 'bias': bias.tolist(), 'object_names': object_names}
     with open(output_file_path, 'w') as output_file:
         json.dump(data, output_file, indent=2)
-
-def load_weights(output_folder, layer_name):
-    layer_folder = os.path.join(output_folder, layer_name)
-    output_file_path = os.path.join(layer_folder, "weights.json")
-    with open(output_file_path, 'r') as input_file:
-        data = json.load(input_file)
-        weights = np.array(data['weights'])
-        bias = np.array(data['bias'])
-    return weights, bias
 
 def train_model(data_folder, output_folder, iterations, learning_rate):
     print(f"Training model using data from folder: {data_folder}")
 
-    num_layers = len([name for name in os.listdir(data_folder) if os.path.isdir(os.path.join(data_folder, name))])
-
-    for layer in range(1, num_layers + 1):
+    layer = 1
+    while True:
         layer_folder = os.path.join(data_folder, f"layer{layer}")
+        if not os.path.exists(layer_folder):
+            break
         print(f"Processing {layer_folder}")
 
         class_to_index = {folder_name: i for i, folder_name in enumerate(os.listdir(layer_folder))}
@@ -82,7 +81,7 @@ def train_model(data_folder, output_folder, iterations, learning_rate):
             for filename in os.listdir(folder_path):
                 file_path = os.path.join(folder_path, filename)
 
-                features, target_index = get_features_from_txt(file_path)
+                features = text_to_values(file_path)
                 if features is None:
                     print(f"Skipping file {filename} due to processing error")
                     continue
@@ -92,7 +91,7 @@ def train_model(data_folder, output_folder, iterations, learning_rate):
                     weights, bias = initialize_weights(num_features, num_classes)
 
                 class_index = class_to_index[folder_name]
-                target_output = np.zeros(num_classes)
+                target_output = np.full(num_classes, 0.001)
                 target_output[class_index] = 1.0
 
                 all_data.append((features, target_output))
@@ -106,7 +105,7 @@ def train_model(data_folder, output_folder, iterations, learning_rate):
 
             for features, target_output in all_data:
                 predicted_output = calculate_output(features, weights, bias)
-                loss = cross_entropy_loss(predicted_output, target_output)
+                loss = mean_squared_error(predicted_output, target_output)
                 total_loss += loss
 
                 if np.argmax(predicted_output) == np.argmax(target_output):
@@ -119,8 +118,10 @@ def train_model(data_folder, output_folder, iterations, learning_rate):
             average_loss = total_loss / total_predictions if total_predictions > 0 else 0
             print(f"Layer {layer}, Iteration {iteration + 1} - Accuracy: {accuracy * 100:.2f}%, Average Loss: {average_loss:.4f}")
 
-        save_weights(weights, bias, output_folder, f"layer{layer}")
+        save_weights(weights, bias, output_folder, f"layer{layer}", list(class_to_index.keys()))
         print(f"Model for layer {layer} trained and saved.")
+
+        layer += 1
 
     print("Training completed for all layers.")
 

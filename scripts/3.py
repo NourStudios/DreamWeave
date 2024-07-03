@@ -2,17 +2,15 @@ import os
 import json
 import numpy as np
 
-def get_brightness_values(text_file_path):
-    try:
-        with open(text_file_path, 'r') as file:
-            brightness_values = np.array([float(x) for x in file.read().split()])
-        if brightness_values.size != 784:  # Ensure it matches the expected size (28x28)
-            raise ValueError("Unexpected number of brightness values in the text file.")
-        brightness_values = brightness_values / 255.0  # Normalize pixel values
-        return brightness_values
-    except Exception as e:
-        print(f"Error processing text file {text_file_path}: {e}")
-        return None
+def text_to_values_from_string(text, max_length=500):
+    char_values = [ord(char) for char in text[:max_length]]
+    char_values.extend([0] * (max_length - len(char_values)))
+
+    # Normalize and scale values to range [0.001, 1]
+    normalized_values = [value / 127 for value in char_values]
+    scaled_values = [0.001 + (value * (1 - 0.001)) for value in normalized_values]
+    
+    return np.array(scaled_values)
 
 def softmax(x):
     exp_x = np.exp(x - np.max(x))
@@ -25,35 +23,37 @@ def load_weights(output_folder, layer_name):
         data = json.load(input_file)
         weights = np.array(data['weights'])
         bias = np.array(data['bias'])
-    return weights, bias
+        object_names = data['object_names']
+    return weights, bias, object_names
 
-def calculate_output(input_values, weights, bias):
-    return softmax(np.dot(input_values, weights) + bias)
-
-def predict(text_file_path, model_folder):
-    input_values = get_brightness_values(text_file_path)
+def predict_text(text, model_folder):
+    input_values = text_to_values_from_string(text)
     if input_values is None:
-        return None, None
+        return "Prediction failed due to text processing error."
 
     layer = 1
     while True:
-        layer_name = f"layer{layer}"
-        layer_folder = os.path.join(model_folder, layer_name)
-        if not os.path.exists(layer_folder) or not os.path.isfile(os.path.join(layer_folder, "weights.json")):
-            break
-        weights, bias = load_weights(model_folder, layer_name)
-        input_values = calculate_output(input_values, weights, bias)
-        layer += 1
+        try:
+            weights, bias, object_names = load_weights(model_folder, f"layer{layer}")
+            predicted_output = softmax(np.dot(input_values, weights) + bias)
+            predicted_class_index = np.argmax(predicted_output)
+            predicted_class = object_names[predicted_class_index]
 
-    return np.argmax(input_values), input_values
+            # Check if there is a next layer
+            if not os.path.exists(os.path.join(model_folder, f"layer{layer+1}")):
+                break
+
+            input_values = np.zeros(len(object_names))
+            input_values[predicted_class_index] = 1
+            layer += 1
+        except FileNotFoundError:
+            break
+
+    return predicted_class
 
 if __name__ == "__main__":
-    text_file_path = input("Enter the path to the text file: ")
-    model_folder = input("Enter the model folder containing the trained values: ")
+    model_folder = input("Enter the model folder: ")
+    text = input("Enter the text for prediction: ")
 
-    predicted_class, output_probabilities = predict(text_file_path, model_folder)
-    if predicted_class is not None:
-        print(f"Predicted Class: {predicted_class}")
-        print(f"Output Probabilities: {output_probabilities}")
-    else:
-        print("Prediction failed.")
+    predicted_class = predict_text(text, model_folder)
+    print(f"Message: {predicted_class}")
